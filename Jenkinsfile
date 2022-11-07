@@ -1,44 +1,60 @@
-
-node {
-  
-  def image
-  def mvnHome = tool 'Maven3'
-
-  
-     stage ('checkout') {
-        checkout([$class: 'GitSCM', branches: [[name: '*/master']], doGenerateSubmoduleConfigurations: false, extensions: [], submoduleCfg: [], userRemoteConfigs: [[credentialsId: '9ffd4ee4-3647-4a7d-a357-5e8746463282', url: 'https://bitbucket.org/ananthkannan/myawesomeangularapprepo/']]])       
-        }
-    
-    
-    stage ('Build') {
-            sh 'mvn -f MyAwesomeApp/pom.xml clean install'            
-        }
-        
-    stage ('archive') {
-            archiveArtifacts '**/*.jar'
-        }
-        
-    stage ('Docker Build') {
-         // Build and push image with Jenkins' docker-plugin
-        withDockerServer([uri: "tcp://localhost:4243"]) {
-
-            withDockerRegistry([credentialsId: "fa32f95a-2d3e-4c7b-8f34-11bcc0191d70", url: "https://index.docker.io/v1/"]) {
-            image = docker.build("ananthkannan/mywebapp", "MyAwesomeApp")
-            image.push()
-            
+pipeline {
+    agent any
+    environment {
+        dockerhub_creds = credentials('dockerhub_creds')
+    }
+    tools {
+        maven 'MAVEN'
+    }
+    stages {
+        stage("checkout SCM") {
+            steps {
+                checkout([$class: 'GitSCM', branches: [[name: '*/master']], extensions: [], userRemoteConfigs: [[url: 'https://github.com/musatee/deploy_eks_Bkash_task3.git']]])
             }
         }
-    }
-    
-       stage('docker stop container') {
-            sh 'docker ps -f name=myContainer -q | xargs --no-run-if-empty docker container stop'
-            sh 'docker container ls -a -fname=myContainer -q | xargs -r docker container rm'
+        stage("Code Build") {
+            steps {
+                sh "mvn clean install"
+            }
+        }
+        stage("Docker Build and Push") {
+            steps {
+                script {
+                    docker.withRegistry('https://index.docker.io/v1/', 'dockerhub_creds') {
 
-       }
-
-    stage ('Docker run') {
-
-        image.run("-p 8085:8085 --rm --name myContainer")
-
-    }
+                    def customImage = docker.build("musatee11/springboot:${env.BUILD_ID}")
+                    customImage.push()
+                    }
+                }
+            }
+        
+        } 
+        stage("Remove built image from Local") {
+            steps {
+                sh "docker rmi -f musatee11/springboot:${env.BUILD_ID}"
+            }
+        }
+        stage("Render image_tag to k8s manifest") {
+            steps {
+                sh """
+                sed -i 's#image: musatee11/springboot.*#image: musatee11/springboot:${env.BUILD_ID}#g' k8s_manifest.yml
+                
+                """
+            }
+        }
+        stage("Deploy to EKS") {
+            steps {
+                withKubeConfig(caCertificate: '', clusterName: '', contextName: '', credentialsId: 'kube_config', namespace: '', serverUrl: '') {
+                        sh 'kubectl apply -f k8s_manifest.yml'
+                    }
+               
+            }
+        }
+       
 }
+ post {
+        always {
+            cleanWs()
+            } 
+        }
+    }
