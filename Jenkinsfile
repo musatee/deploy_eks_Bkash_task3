@@ -56,6 +56,9 @@ pipeline {
  post {
         always {
             cleanWs()
-            } 
+            }
+        success {
+            slackSend channel: 'jenkins_cicd', message: "Deployment to EKS is successful with build ID: ${env.BUILD_ID}!!"
+        } 
         }
     }
