@@ -1,0 +1,88 @@
+--- 
+#### create Docker hub secret 
+apiVersion: v1
+data:
+  .dockerconfigjson: eyJhdXRocyI6eyJodHRwczovL2luZGV4LmRvY2tlci5pby92MS8iOnsidXNlcm5hbWUiOiJtdXNhdGVlMTEiLCJwYXNzd29yZCI6Im11c2F0ZWUxMSIsImVtYWlsIjoibXVzYS5oc3R1MTFAZ21haWwuY29tIiwiYXV0aCI6ImJYVnpZWFJsWlRFeE9tMTFjMkYwWldVeE1RPT0ifX19
+kind: Secret
+metadata:
+  name: regcred
+type: kubernetes.io/dockerconfigjson
+--- 
+
+#### Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata: 
+  name: deployment-springboot
+spec: 
+  replicas: 2
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 50%
+    type: RollingUpdate
+
+  selector:
+    matchLabels: 
+      app: demo-app   
+  template:
+    metadata:
+      name: demo-pod
+      labels:
+        app: demo-app
+    spec:
+      containers:
+        - 
+          name: demo-app
+          image: musatee11/springboot:latest
+          imagePullPolicy: Always
+          ports:
+            - 
+              containerPort: 8085
+      imagePullSecrets:
+      - name: regcred
+---
+###### Ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-ecare
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: instance
+    alb.ingress.kubernetes.io/actions.redirect-to-nonwww: >
+      {"type":"redirect","redirectConfig":{"host":"myapp.ekyc-test.tk","port":"443","protocol":"HTTPS","statusCode":"HTTP_302"}}
+    alb.ingress.kubernetes.io/ssl-redirect: '443'
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS":443}]'
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:ap-southeast-1:115391213665:certificate/be0c8ff8-c5cd-43b5-8c13-c8f5563c69c4 
+spec:
+  ingressClassName: alb
+  rules:
+    -  
+      host: myapp.ekyc-test.tk
+      http:
+        paths:
+
+          - 
+            path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: firstservice
+                port:
+                  number: 80
+--- 
+#### service 
+apiVersion: v1 
+kind: Service   
+metadata: 
+ name: firstservice
+spec: 
+ type: NodePort
+ ports:
+  -  
+   port: 80
+   targetPort: 8085
+ selector:
+  app: demo-app
+
